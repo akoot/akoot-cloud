@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<body>
+<h2>Main Page</h2>
+
+<button onclick="logout()">Logout</button>
+
+<pre id="info"></pre>
+
+<script>
+    let accessToken = localStorage.getItem("accessToken");
+
+    async function getMe() {
+        let res = await fetch("/me", {
+            headers: { "Authorization": "Bearer " + accessToken }
+        });
+
+        // access expired → refresh
+        if (res.status === 403) {
+            const refresh = await fetch("/refresh", { method: "POST" });
+
+            if (refresh.status !== 200) {
+                window.location.href = "/";
+                return;
+            }
+
+            const data = await refresh.json();
+            accessToken = data.accessToken;
+            localStorage.setItem("accessToken", accessToken);
+
+            return getMe();
+        }
+
+        if (res.status !== 200) {
+            window.location.href = "/";
+            return;
+        }
+
+        info.innerText = JSON.stringify(await res.json(), null, 2);
+    }
+
+    async function logout() {
+        await fetch("/logout", { method: "POST" });
+        localStorage.removeItem("accessToken");
+        window.location.href = "/";
+    }
+
+    getMe();
+</script>
+</body>
+</html>
