@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<body>
+<h2>Register</h2>
+<input id="r_user" placeholder="Username"><br>
+<input id="r_pass" type="password" placeholder="Password"><br>
+<button onclick="register()">Register</button>
+
+<h2>Login</h2>
+<input id="l_user" placeholder="Username"><br>
+<input id="l_pass" type="password" placeholder="Password"><br>
+<button onclick="login()">Login</button>
+
+<p id="out"></p>
+
+<script>
+    async function register() {
+        const res = await fetch("/register", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                username: r_user.value,
+                password: r_pass.value
+            })
+        });
+
+        out.innerText = JSON.stringify(await res.json());
+    }
+
+    async function login() {
+        const res = await fetch("/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                username: l_user.value,
+                password: l_pass.value
+            })
+        });
+
+        out.innerText = JSON.stringify(await res.json());
+    }
+</script>
+</body>
+</html>
