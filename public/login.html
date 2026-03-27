@@ -14,12 +14,32 @@
 
 <input id="r_user" placeholder="Username"><br>
 <input id="r_pass" type="password" placeholder="Password"><br>
-<input id="r_token" placeholder="Invite Token"><br>
+<input id="r_token" placeholder="XXXX-XXXX-XXXX-XXXX"><br>
 
 <button onclick="register()">Register</button>
 
 <p id="out"></p>
+<script>
+    const tokenInput = document.getElementById("r_token");
 
+    tokenInput.addEventListener("input", () => {
+        let value = tokenInput.value.toUpperCase();
+
+        // remove everything except letters
+        value = value.replace(/[^A-Z]/g, "");
+
+        // avoid longer inputs
+        if (value.length > 16) value = value.slice(0, 16);
+
+        // split into chunks of 4
+        let parts = value.match(/.{1,4}/g) || [];
+
+        // limit to 4 parts
+        parts = parts.slice(0, 4);
+
+        tokenInput.value = parts.join("-");
+    });
+</script>
 <script>
     let accessToken = null;
 
@@ -50,7 +70,7 @@
             body: JSON.stringify({
                 username: r_user.value,
                 password: r_pass.value,
-                token: r_token.value
+                token: r_token.value.toUpperCase()
             })
         });
 

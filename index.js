@@ -26,19 +26,10 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 
-const USERS_FILE = path.join(__dirname, "users.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
-
-// ensure users file
-if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, "[]");
-}
-
-const readUsers = () => JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-const writeUsers = (u) => fs.writeFileSync(USERS_FILE, JSON.stringify(u, null, 2));
 
 //
 // REGISTER
@@ -51,35 +42,44 @@ app.post("/register", async (req, res) => {
     }
 
     try {
-        // ✅ verify username + token match via shared id
+        // ✅ verify username + token match
         const [rows] = await db.execute(`
-      SELECT pn.id
-      FROM player_name pn
-      JOIN player_token pt ON pn.id = pt.id
-      WHERE pn.name = ? AND pt.token = ?
-      LIMIT 1
-    `, [username, token]);
+            SELECT pn.id
+            FROM player_name pn
+                     JOIN player_token pt ON pn.id = pt.id
+            WHERE pn.name = ? AND pt.token = ?
+                LIMIT 1
+        `, [username, token]);
 
         if (rows.length === 0) {
-            return res.status(403).json({ error: "Invalid username/token pair" });
+            return res.status(403).json({ error: "Invalid username/token" });
         }
 
-        // check if already registered locally
-        const users = readUsers();
-        if (users.find(u => u.username === username)) {
-            return res.status(409).json({ error: "User already exists" });
+        const userId = rows[0].id;
+
+        // ❌ check if already registered
+        const [existing] = await db.execute(
+            `SELECT id FROM cloud_login WHERE id = ?`,
+            [userId]
+        );
+
+        if (existing.length > 0) {
+            return res.status(409).json({ error: "Already registered" });
         }
 
-        // hash password
+        // 🔐 hash password
         const passwordHash = await argon2.hash(password);
 
-        users.push({
-            username,
-            passwordHash
-        });
+        // 💾 insert into cloud_login
+        await db.execute(
+            `INSERT INTO cloud_login (id, hash) VALUES (?, ?)`,
+            [userId, passwordHash]
+        );
 
-        writeUsers(users);
-
+        await db.execute(
+            `DELETE FROM player_token WHERE id = ?`,
+            [userId]
+        );
         res.json({ message: "Registered successfully" });
 
     } catch (err) {
@@ -94,23 +94,54 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
     const { username, password } = req.body;
 
-    const users = readUsers();
-    const user = users.find(u => u.username === username);
-    if (!user) return res.status(401).json({ error: "Invalid" });
+    if (!username || !password) {
+        return res.status(400).json({ error: "Missing fields" });
+    }
 
-    const valid = await argon2.verify(user.passwordHash, password);
-    if (!valid) return res.status(401).json({ error: "Invalid" });
+    try {
+        const [rows] = await db.execute(`
+      SELECT pn.id, cl.hash
+      FROM player_name pn
+      JOIN cloud_login cl ON pn.id = cl.id
+      WHERE pn.name = ?
+      LIMIT 1
+    `, [username]);
 
-    const accessToken = jwt.sign({ username }, ACCESS_SECRET, { expiresIn: "15m" });
-    const refreshToken = jwt.sign({ username }, REFRESH_SECRET, { expiresIn: "7d" });
+        if (rows.length === 0) {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
 
-    // store refresh in cookie
-    res.cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        sameSite: "strict"
-    });
+        const user = rows[0];
 
-    res.json({ accessToken });
+        const valid = await argon2.verify(user.hash, password);
+        if (!valid) {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        // 🎟️ tokens
+        const accessToken = jwt.sign(
+            { id: user.id, username },
+            ACCESS_SECRET,
+            { expiresIn: "15m" }
+        );
+
+        const refreshToken = jwt.sign(
+            { id: user.id, username },
+            REFRESH_SECRET,
+            { expiresIn: "7d" }
+        );
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            sameSite: "strict"
+        });
+
+        res.json({ accessToken });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Database error" });
+    }
 });
 
 //
