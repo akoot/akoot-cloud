@@ -7,6 +7,15 @@
 <input id="pass" type="password" placeholder="Password"><br>
 
 <button onclick="login()">Login</button>
+
+<span>or</span>
+
+<h2>Register</h2>
+
+<input id="r_user" placeholder="Username"><br>
+<input id="r_pass" type="password" placeholder="Password"><br>
+<input id="r_token" placeholder="Invite Token"><br>
+
 <button onclick="register()">Register</button>
 
 <p id="out"></p>
@@ -39,8 +48,9 @@
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
-                username: user.value,
-                password: pass.value
+                username: r_user.value,
+                password: r_pass.value,
+                token: r_token.value
             })
         });
 

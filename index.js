@@ -4,6 +4,23 @@ const path = require("path");
 const argon2 = require("argon2");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
+const mysql = require("mysql2/promise");
+require("dotenv").config();
+
+["DB_HOST","DB_USER","DB_PASSWORD","DB_NAME","JWT_ACCESS_SECRET","JWT_REFRESH_SECRET"]
+    .forEach(v => {
+        if (!process.env[v]) {
+            console.error(`Missing env: ${v}`);
+            process.exit(1);
+        }
+    });
+
+const db = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
+});
 
 const app = express();
 app.use(express.json());
@@ -12,8 +29,8 @@ app.use(cookieParser());
 const USERS_FILE = path.join(__dirname, "users.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-const ACCESS_SECRET = "access_secret_change_me";
-const REFRESH_SECRET = "refresh_secret_change_me";
+const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
 // ensure users file
 if (!fs.existsSync(USERS_FILE)) {
@@ -27,19 +44,48 @@ const writeUsers = (u) => fs.writeFileSync(USERS_FILE, JSON.stringify(u, null, 2
 // REGISTER
 //
 app.post("/register", async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: "Missing fields" });
+    const { username, password, token } = req.body;
 
-    const users = readUsers();
-    if (users.find(u => u.username === username)) {
-        return res.status(409).json({ error: "User exists" });
+    if (!username || !password || !token) {
+        return res.status(400).json({ error: "Missing fields" });
     }
 
-    const hash = await argon2.hash(password);
-    users.push({ username, passwordHash: hash });
-    writeUsers(users);
+    try {
+        // ✅ verify username + token match via shared id
+        const [rows] = await db.execute(`
+      SELECT pn.id
+      FROM player_name pn
+      JOIN player_token pt ON pn.id = pt.id
+      WHERE pn.name = ? AND pt.token = ?
+      LIMIT 1
+    `, [username, token]);
 
-    res.json({ message: "Registered" });
+        if (rows.length === 0) {
+            return res.status(403).json({ error: "Invalid username/token pair" });
+        }
+
+        // check if already registered locally
+        const users = readUsers();
+        if (users.find(u => u.username === username)) {
+            return res.status(409).json({ error: "User already exists" });
+        }
+
+        // hash password
+        const passwordHash = await argon2.hash(password);
+
+        users.push({
+            username,
+            passwordHash
+        });
+
+        writeUsers(users);
+
+        res.json({ message: "Registered successfully" });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Database error" });
+    }
 });
 
 //
